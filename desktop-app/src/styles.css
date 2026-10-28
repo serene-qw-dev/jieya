@@ -22,3 +22,18 @@
 @media(max-width:760px){.theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sound-choice-grid{grid-template-columns:1fr;padding:14px}.ambience-controls{grid-template-columns:1fr;padding:14px}.ambience-buttons{justify-content:flex-start}.relax-scene{min-height:230px;padding:23px}.scene-title{font-size:24px}.scene-orb{width:74px;height:74px;right:8%}.relax-tips-grid{grid-template-columns:1fr}.sand-toolbar{align-items:stretch;gap:15px}.sand-size-wrap{max-width:none}.sand-actions{justify-content:flex-start}.sand-actions button{flex:1}.sand-canvas-wrap{height:45vh;min-height:250px}.infinite-grid{grid-template-columns:repeat(6,minmax(20px,1fr));gap:9px;padding:17px 0}.infinite-top{align-items:flex-start}.infinite-bottom{align-items:flex-start;flex-direction:column}.mood-options{grid-template-columns:repeat(3,minmax(0,1fr))}.mood-option{padding:11px 4px}.calendar-day{min-height:43px}.mood-bar-row{grid-template-columns:24px 66px minmax(0,1fr) 38px;gap:7px}.fullscreen-copy{padding:10px}.fullscreen-moon{right:5%;top:6%;opacity:.35}.fullscreen-footer{bottom:10px}.nav{grid-template-columns:repeat(5,minmax(0,1fr))}.nav-item{padding:7px 2px;font-size:9px}.nav-item .nav-icon{font-size:16px}}
 
 .brand-mark{overflow:hidden}.brand-icon-image{display:block;width:45px;height:45px;object-fit:cover;border-radius:15px}
+
+
+/* v1.1.1 hotfix: keep scrolling inside the app viewport instead of allowing the
+   fixed-height shell or the game rerender loop to move the whole page. */
+html, body { height: 100%; min-height: 0; overflow: hidden; }
+.app { height: 100vh; height: 100dvh; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.sidebar, .main, .content { min-height: 0; }
+.content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.whack-field, .whack-cell { user-select: none; -webkit-user-select: none; }
+.whack-cell { touch-action: manipulation; }
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .main { grid-row: 1; min-height: 0; }
+  .sidebar { grid-row: 2; order: 0; min-height: 0; max-height: 110px; overflow-x: hidden; overflow-y: auto; }
+}

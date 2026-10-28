@@ -1,7 +1,7 @@
 {
   "name": "jieya-desktop",
-  "version": "1.1.0",
-  "description": "解压研究所 Windows 桌面版：小游戏、白噪音、沙子绘画、每日心情与本地记录",
+  "version": "1.1.1",
+  "description": "解压研究所 Windows 桌面版：锤烦恼滚动与目标计时修复，白噪音、沙子绘画、每日心情",
   "main": "main.js",
   "author": "qwb",
   "license": "MIT",

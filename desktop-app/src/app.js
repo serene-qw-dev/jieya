@@ -67,6 +67,7 @@ const ACHIEVEMENTS = [
 ]
 
 let activePage = 'home'
+let lastRenderedPage = null
 let homeTip = pick(TIPS)
 let soundEnabled = localStorage.getItem(KEYS.sound) !== 'false'
 let currentTheme = localStorage.getItem(KEYS.theme) || 'lavender'
@@ -158,11 +159,23 @@ function headerMarkup() {
 }
 function navMarkup() {
   const items = [ ['home','🐟','木鱼修行'], ['bubble','🫧','捏泡泡'], ['infinite','🫧','无限泡泡'], ['sand','🏖️','沙子绘画'], ['whack','🔨','锤烦恼'], ['relax','🌧️','白噪音小屋'], ['fortune','🏮','今日求签'], ['mood','🌈','每日心情'], ['mine','🌱','我的档案'] ]
-  return `<aside class="sidebar"><div class="brand"><div class="brand-mark"><img class="brand-icon-image" src="../assets/icon.png" alt=""></div><div><div class="brand-title">解压研究所</div><div class="brand-sub">RELAX LAB · DESKTOP</div></div></div><div class="nav-label">放松一下</div><nav class="nav">${items.map(([id,icon,label]) => `<button class="nav-item ${activePage === id ? 'active' : ''}" data-page="${id}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}</nav><div class="sidebar-bottom"><div class="mini-note"><strong>☁️ 给自己一点空间</strong>不必每件事都马上完成。停下来呼吸一下，也是一种进步。</div><div class="sidebar-foot">解压研究所 v1.1.0 · 桌面版</div></div></aside>`
+  return `<aside class="sidebar"><div class="brand"><div class="brand-mark"><img class="brand-icon-image" src="../assets/icon.png" alt=""></div><div><div class="brand-title">解压研究所</div><div class="brand-sub">RELAX LAB · DESKTOP</div></div></div><div class="nav-label">放松一下</div><nav class="nav">${items.map(([id,icon,label]) => `<button class="nav-item ${activePage === id ? 'active' : ''}" data-page="${id}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}</nav><div class="sidebar-bottom"><div class="mini-note"><strong>☁️ 给自己一点空间</strong>不必每件事都马上完成。停下来呼吸一下，也是一种进步。</div><div class="sidebar-foot">解压研究所 v1.1.1 · 桌面版</div></div></aside>`
 }
 function render() {
+  // Replacing root.innerHTML also replaces the scroll container. Preserve scroll
+  // for in-page updates, but start at the top when the user navigates to a new page.
+  const keepScroll = lastRenderedPage === activePage
+  const oldContent = root.querySelector('.content')
+  const oldSidebar = root.querySelector('.sidebar')
+  const contentScrollTop = keepScroll && oldContent ? oldContent.scrollTop : 0
+  const sidebarScrollTop = keepScroll && oldSidebar ? oldSidebar.scrollTop : 0
   const pageContent = activePage === 'home' ? renderHome() : activePage === 'bubble' ? renderBubble() : activePage === 'whack' ? renderWhack() : activePage === 'fortune' ? renderFortune() : activePage === 'mine' ? renderMine() : activePage === 'relax' ? renderRelax() : activePage === 'sand' ? renderSand() : activePage === 'infinite' ? renderInfiniteBubbles() : renderMood()
   root.innerHTML = `<div class="app">${navMarkup()}<main class="main">${headerMarkup()}<section class="content"><div class="content-inner">${pageContent}</div></section></main></div>`
+  const newContent = root.querySelector('.content')
+  const newSidebar = root.querySelector('.sidebar')
+  if (newContent) newContent.scrollTop = contentScrollTop
+  if (newSidebar) newSidebar.scrollTop = sidebarScrollTop
+  lastRenderedPage = activePage
   document.documentElement.dataset.theme = currentTheme
   if (activePage === 'sand') requestAnimationFrame(initSandCanvas)
 }
@@ -191,7 +204,7 @@ function renderWhack() {
   const s = getStats(); whackGame.best = s.whackBestScore || 0
   if (whackGame.state === 'idle') return `<div class="section-head"><div><div class="eyebrow">QUICK REACTION</div><h1 class="page-heading">锤爆烦恼</h1><p class="page-desc">烦恼一冒头就锤下去！30 秒挑战手速，幸运小草莓可额外加 5 分。</p></div><span class="pill">最高 ${whackGame.best} 分</span></div><section class="card whack-start"><div class="hero">🔨</div><h2>准备好清空烦恼了吗？</h2><p>点击开始后，💼 工作、📝 作业、🧾 账单等烦恼会随机冒出来。锤中普通目标 +1 分，🍀 幸运目标 +5 分。</p><div class="target-row"><span class="target-tag">💼 +1</span><span class="target-tag">📝 +1</span><span class="target-tag">🧾 +1</span><span class="target-tag">😤 +1</span><span class="target-tag">🦟 +1</span><span class="target-tag">💤 +1</span><span class="target-tag bonus">🍀 +5</span></div><button class="primary-btn" data-action="start-whack">开始锤！</button></section>`
   const g = whackGame
-  return `<div class="section-head"><div><div class="eyebrow">QUICK REACTION</div><h1 class="page-heading">锤爆烦恼</h1><p class="page-desc">看准目标，出现就点！空洞也可以点，但会错过节奏。</p></div><button class="secondary-btn" data-action="quit-whack">退出本局</button></div><section class="card whack-top"><div><div class="card-title">🔨 清除烦恼中 ${g.combo >= 3 ? `<span class="pill">🔥 连击 x${g.combo}</span>` : ''}</div><div class="card-sub">30 秒挑战 · 每锤中一次会累计解压值</div></div><div class="whack-score"><div><strong id="whack-score">${g.score}</strong><span>本局得分</span></div><div><strong id="whack-time">${g.timeLeft}</strong><span>剩余秒数</span></div><div><strong>${g.best}</strong><span>历史最高</span></div></div><div class="time-bar"><span id="whack-time-bar" style="width:${g.timeLeft / 30 * 100}%"></span></div></section><section class="whack-field">${g.holes.map((h,i) => `<button class="whack-cell ${h.hit ? 'hit' : ''} ${h.bonus ? 'bonus' : ''}" data-hole="${i}" aria-label="第 ${i + 1} 个洞"><span class="hole-shadow"></span><span class="mole ${h.up ? 'up' : ''}">${h.up ? h.emoji : ''}</span></button>`).join('')}</section><div class="whack-hint">🎯 金色幸运草 +5 分 · 目标出现时间会越来越短</div>${g.state === 'over' && g.result ? `<section class="game-result"><div class="result-emoji">${g.result.emoji}</div><div class="result-title">${g.result.title}</div><div class="result-score">${g.result.score} 分</div><div class="rating">${g.result.rating} 级</div><div class="page-desc">历史最高 ${g.result.best} 分 ${g.result.isNewBest ? '· 🏆 新纪录！' : ''}</div><div class="result-buttons"><button class="primary-btn" data-action="start-whack">再来一局</button></div></section>` : ''}`
+  return `<div class="section-head"><div><div class="eyebrow">QUICK REACTION</div><h1 class="page-heading">锤爆烦恼</h1><p class="page-desc">看准目标，出现就点！空洞也可以点，但会错过节奏。</p></div><button class="secondary-btn" data-action="quit-whack">退出本局</button></div><section class="card whack-top"><div><div class="card-title">🔨 清除烦恼中 <span id="whack-combo" class="pill" style="${g.combo >= 3 ? '' : 'display:none'}">🔥 连击 x${g.combo}</span></div><div class="card-sub">30 秒挑战 · 每锤中一次会累计解压值</div></div><div class="whack-score"><div><strong id="whack-score">${g.score}</strong><span>本局得分</span></div><div><strong id="whack-time">${g.timeLeft}</strong><span>剩余秒数</span></div><div><strong>${g.best}</strong><span>历史最高</span></div></div><div class="time-bar"><span id="whack-time-bar" style="width:${g.timeLeft / 30 * 100}%"></span></div></section><section class="whack-field">${g.holes.map((h,i) => `<button class="whack-cell ${h.hit ? 'hit' : ''} ${h.bonus ? 'bonus' : ''}" data-hole="${i}" aria-label="第 ${i + 1} 个洞"><span class="hole-shadow"></span><span class="mole ${h.up ? 'up' : ''}">${h.up ? h.emoji : ''}</span></button>`).join('')}</section><div class="whack-hint">🎯 金色幸运草 +5 分 · 目标出现时间会越来越短</div>${g.state === 'over' && g.result ? `<section class="game-result"><div class="result-emoji">${g.result.emoji}</div><div class="result-title">${g.result.title}</div><div class="result-score">${g.result.score} 分</div><div class="rating">${g.result.rating} 级</div><div class="page-desc">历史最高 ${g.result.best} 分 ${g.result.isNewBest ? '· 🏆 新纪录！' : ''}</div><div class="result-buttons"><button class="primary-btn" data-action="start-whack">再来一局</button></div></section>` : ''}`
 }
 function renderFortune() {
   const stats = getStats(), history = getHistory(), drawnToday = stats.drawDate === todayStr()
@@ -215,7 +228,7 @@ function renderMine() {
       <div class="divider"></div><div class="settings-row"><div><strong>🌧️ 环境音</strong><div class="card-sub">雨声、海浪、森林音效可在「白噪音小屋」设置。</div></div><button class="secondary-btn" data-page="relax">打开白噪音</button></div>
     </section>
     <section class="card" style="margin-bottom:16px"><div class="card-title">🏮 最近求签</div><div class="fortune-history">${history.length ? history.map(h => `<div class="history-item"><div class="history-badge">${escapeHtml(h.name)}</div><div class="history-text">${escapeHtml(h.text)}</div><div class="history-time">${fmtTime(h.time)}</div></div>`).join('') : '<div class="empty-state">暂无求签记录，去「今日求签」看看吧。</div>'}</div></section>
-    <section class="card"><div class="card-title">🧰 本地数据管理</div><div class="card-sub">卸载软件不会主动清理这些记录；重置会清空功德、游戏记录、心情日记和成就进度。</div><div class="settings-row"><div><strong>重置本机数据</strong><div class="card-sub">此操作无法撤销。</div></div><button class="danger-btn" data-action="reset-data">重置数据</button></div></section><div class="footer-note">解压研究所 v1.1.0 · 愿你今天也有一点好心情。</div>`
+    <section class="card"><div class="card-title">🧰 本地数据管理</div><div class="card-sub">卸载软件不会主动清理这些记录；重置会清空功德、游戏记录、心情日记和成就进度。</div><div class="settings-row"><div><strong>重置本机数据</strong><div class="card-sub">此操作无法撤销。</div></div><button class="danger-btn" data-action="reset-data">重置数据</button></div></section><div class="footer-note">解压研究所 v1.1.1 · 愿你今天也有一点好心情。</div>`
 }
 
 
@@ -460,7 +473,7 @@ function stopWhackTimers() {
 }
 function startWhack() {
   stopWhackTimers()
-  whackGame = { state:'playing', score:0, combo:0, best:getStats().whackBestScore || 0, startTime:Date.now(), timeLeft:30, holes:Array.from({length:9},()=>({up:false,hit:false,emoji:'',bonus:false})), result:null }
+  whackGame = { state:'playing', score:0, combo:0, best:getStats().whackBestScore || 0, startTime:Date.now(), timeLeft:30, holes:Array.from({length:9},()=>({up:false,hit:false,emoji:'',bonus:false,spawnToken:0})),result:null }
   render()
   whackInterval = setInterval(() => {
     if (whackGame.state !== 'playing') return
@@ -474,22 +487,59 @@ function startWhack() {
   }, 100)
   spawnWhack()
 }
+function updateWhackVisuals() {
+  if (activePage !== 'whack' || whackGame.state !== 'playing') return
+  // Update only the game controls. Re-rendering the whole app several times a
+  // second recreated .content, causing the page to jump and vertical scrolling
+  // to feel broken while targets were appearing.
+  const field = root.querySelector('.whack-field')
+  if (field) {
+    field.querySelectorAll('[data-hole]').forEach(cell => {
+      const index = Number(cell.getAttribute('data-hole'))
+      const hole = whackGame.holes[index]
+      if (!hole) return
+      cell.classList.toggle('hit', Boolean(hole.hit))
+      cell.classList.toggle('bonus', Boolean(hole.bonus))
+      const mole = cell.querySelector('.mole')
+      if (mole) {
+        mole.classList.toggle('up', Boolean(hole.up))
+        mole.textContent = (hole.up || hole.hit) ? hole.emoji : ''
+      }
+    })
+  }
+  const scoreEl = document.getElementById('whack-score')
+  if (scoreEl) scoreEl.textContent = String(whackGame.score)
+  const comboEl = document.getElementById('whack-combo')
+  if (comboEl) {
+    comboEl.textContent = `🔥 连击 x${whackGame.combo}`
+    comboEl.style.display = whackGame.combo >= 3 ? '' : 'none'
+  }
+}
 function spawnWhack() {
   if (whackGame.state !== 'playing') return
   const idle = whackGame.holes.map((h,i)=>({h,i})).filter(x=>!x.h.up)
   if (idle.length) {
     const { h, i } = pick(idle)
+    h.spawnToken = (h.spawnToken || 0) + 1
+    const spawnToken = h.spawnToken
     h.up = true; h.hit = false; h.bonus = Math.random() < .12
     h.emoji = h.bonus ? '🍀' : pick(['💼','📝','🧾','😤','🦟','💤'])
-    render()
+    updateWhackVisuals()
     const stay = 650 + Math.random() * 400
     whackTimers.push(setTimeout(() => {
       if (whackGame.state !== 'playing') return
       const cur = whackGame.holes[i]
-      if (cur && cur.up && !cur.hit) { cur.up = false; whackGame.combo = 0; render() }
+      // Ignore this callback if the old target was hit or this hole has since
+      // been reused by a newer target.
+      if (cur && cur.spawnToken === spawnToken && cur.up && !cur.hit) {
+        cur.up = false
+        cur.spawnToken += 1
+        whackGame.combo = 0
+        updateWhackVisuals()
+      }
     }, stay))
   }
-  const progress = (Date.now() - whackGame.startTime) / 30000
+  const progress = Math.min(1, (Date.now() - whackGame.startTime) / 30000)
   whackLoopTimer = setTimeout(spawnWhack, 600 - 260 * progress)
 }
 function hitWhack(id) {
@@ -497,11 +547,12 @@ function hitWhack(id) {
   const hole = whackGame.holes[Number(id)]
   if (!hole || !hole.up || hole.hit) return
   hole.hit = true
+  hole.spawnToken = (hole.spawnToken || 0) + 1 // invalidate its hide timeout
   const gain = hole.bonus ? 5 : 1
   whackGame.score += gain; whackGame.combo += 1; hole.up = false
   changeStats(s => { s.whackTotal = (s.whackTotal || 0) + 1 })
   playSound(hole.bonus ? 'egg' : 'whack')
-  render()
+  updateWhackVisuals()
 }
 function endWhack() {
   if (whackGame.state !== 'playing') return

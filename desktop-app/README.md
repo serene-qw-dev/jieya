@@ -1,4 +1,4 @@
-# 解压研究所 Windows 桌面版 v1.1.0
+# 解压研究所 Windows 桌面版 v1.1.1
 
 一个离线优先的桌面解压小工具，使用 Electron + HTML/CSS/JavaScript。原有玩法继续保留，本版增加了白噪音、自由绘画、无限捏泡泡、主题与音量设置、每日心情日历。
 
@@ -11,7 +11,12 @@
 - **今日求签**：每日一签、历史记录（仅供娱乐）。
 - **我的档案**：解压等级、成就墙、历史统计。
 
-### v1.1.0 新增
+### v1.1.1 修复
+- 锤烦恼改为局部更新游戏区域，避免目标出现时整页刷新导致滚动位置跳动。
+- 为每个洞增加目标代次标记，旧计时器不会提前隐藏新目标。
+- 调整视口高度与内容滚动容器，改善小窗口上下滚动。
+
+### v1.1.0 新增功能
 - **白噪音小屋**：雨声、海浪、森林氛围由 Web Audio 在本机实时生成；支持音量控制和全屏放松动画，不依赖外部音频文件。
 - **沙子绘画**：使用鼠标或支持触摸的设备绘画，选择六种彩砂颜色、调整颗粒大小、清空画布，并导出 PNG 图片。
 - **无限捏泡泡**：无倒计时、无输赢，泡泡会自动补充；累计次数保存在本机。
@@ -43,8 +48,8 @@ npm run dist:win
 ```
 
 生成文件：
-- `dist/解压研究所-1.1.0-Windows-x64.exe`：Windows 安装程序。
-- `dist/解压研究所-1.1.0-Windows-x64.zip`：便携包。
+- `dist/解压研究所-1.1.1-Windows-x64.exe`：Windows 安装程序。
+- `dist/解压研究所-1.1.1-Windows-x64.zip`：便携包。
 
 需要在 Windows 上本地构建，或者使用下文的 GitHub Actions 自动构建。
 
@@ -56,17 +61,17 @@ npm run dist:win
 
 ```cmd
 git add .
-git commit -m "发布解压研究所 v1.1.0"
+git commit -m "发布解压研究所 v1.1.1"
 git push
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.1.1
+git push origin v1.1.1
 ```
 
 随后打开仓库的 **Actions** 页面，等待 `Build Windows release` 工作流成功；它会把 `.exe` 和 `.zip` 自动附加到 GitHub Release。
 
 下载页：<https://github.com/kiss061012/jieya/releases/latest>
 
-> 如果 `v1.1.0` 标签已经存在，不要重复创建同名标签，应换用 `v1.1.1` 等新版本号。不要使用 `git push --force`。自动发布需要仓库 Actions 权限可用。
+> 如果 `v1.1.1` 标签已经存在，不要重复创建同名标签，应换用 `v1.1.2` 等新版本号。不要使用 `git push --force`。自动发布需要仓库 Actions 权限可用。
 
 ## 数据与隐私
 
