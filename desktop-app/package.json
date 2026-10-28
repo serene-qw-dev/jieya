@@ -1,7 +1,7 @@
 {
   "name": "jieya-desktop",
-  "version": "1.0.0",
-  "description": "解压研究所 Windows 桌面版：木鱼、捏泡泡、锤烦恼、每日求签与成就记录",
+  "version": "1.1.0",
+  "description": "解压研究所 Windows 桌面版：小游戏、白噪音、沙子绘画、每日心情与本地记录",
   "main": "main.js",
   "author": "qwb",
   "license": "MIT",
@@ -54,6 +54,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "解压研究所",
       "deleteAppDataOnUninstall": false
-    }
+    },
+    "copyright": "Copyright © 2026 qwb"
   }
 }

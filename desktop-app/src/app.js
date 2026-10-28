@@ -1,13 +1,17 @@
 'use strict'
 
 const root = document.getElementById('app')
-const KEYS = { stats: 'relax.stats', history: 'relax.drawHistory', achievements: 'relax.achSeen', sound: 'relax.soundOn' }
+const KEYS = { stats: 'relax.stats', history: 'relax.drawHistory', achievements: 'relax.achSeen', sound: 'relax.soundOn', theme: 'relax.theme', soundVolume: 'relax.soundVolume', ambienceVolume: 'relax.ambienceVolume', infiniteBubbles: 'relax.infiniteBubbles', moods: 'relax.moods' }
 const PAGE_INFO = {
   home: { title: '木鱼修行', subtitle: '敲掉一点烦恼，攒下一点好心情。', icon: '🐟' },
   bubble: { title: '捏泡泡纸', subtitle: '啪、啪、啪，把紧绷的情绪一点点放掉。', icon: '🫧' },
   whack: { title: '锤爆烦恼', subtitle: '烦恼冒头就锤它！看看 30 秒能拿多少分。', icon: '🔨' },
   fortune: { title: '今日求签', subtitle: '给今天一点轻松的小仪式，结果仅供娱乐。', icon: '🏮' },
-  mine: { title: '我的档案', subtitle: '看看你积累的解压值、成就与求签记录。', icon: '🌱' }
+  mine: { title: '我的档案', subtitle: '看看你积累的解压值、成就与求签记录。', icon: '🌱' },
+  relax: { title: '白噪音小屋', subtitle: '给自己一个安静的角落，听雨、听海、听森林。', icon: '🌧️' },
+  sand: { title: '沙子绘画', subtitle: '用一粒粒彩砂画下此刻的心情，不需要画得完美。', icon: '🏖️' },
+  infinite: { title: '无限捏泡泡', subtitle: '没有倒计时、没有输赢，想捏多久就捏多久。', icon: '🫧' },
+  mood: { title: '每日心情', subtitle: '简单记下今天的感受，慢慢看见自己的变化。', icon: '🌈' }
 }
 const TIPS = [
   { emoji: '🌬️', text: '深呼吸 4 秒，慢慢呼气 6 秒，重复 5 次。' },
@@ -65,6 +69,22 @@ const ACHIEVEMENTS = [
 let activePage = 'home'
 let homeTip = pick(TIPS)
 let soundEnabled = localStorage.getItem(KEYS.sound) !== 'false'
+let currentTheme = localStorage.getItem(KEYS.theme) || 'lavender'
+let soundVolume = Number(localStorage.getItem(KEYS.soundVolume) ?? 70)
+let ambienceVolume = Number(localStorage.getItem(KEYS.ambienceVolume) ?? 35)
+let ambienceType = 'none'
+let audioContext = null
+let ambienceNodes = []
+let ambientOutput = null
+let infinitePopCount = Number(localStorage.getItem(KEYS.infiniteBubbles) || 0)
+let selectedMoodDate = todayStr()
+let moodMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+let moodDraft = { mood: '', note: '' }
+let sandCanvas = null
+let sandCtx = null
+let sandDrawing = false
+let sandColor = '#f0b45d'
+let sandSize = 16
 let toastTimer = null
 let bubbleGame = null
 let whackGame = { state: 'idle', score: 0, combo: 0, best: 0, timeLeft: 30, holes: [], result: null }
@@ -115,10 +135,10 @@ function fmtTime(ts) {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 function playSound(name) {
-  if (!soundEnabled) return
+  if (!soundEnabled || soundVolume <= 0) return
   const volumes = { knock1: .85, knock2: .85, knock3: .9, knock4: .9, knock5: .95, pop: .6, egg: .8, rattle: .7, land: .8, win: .9, whack: .85 }
   const audio = new Audio(`../sounds/${name}.wav`)
-  audio.volume = volumes[name] || .75
+  audio.volume = Math.max(0, Math.min(1, (volumes[name] || .75) * soundVolume / 100))
   audio.play().catch(() => {})
 }
 function getHistory() { return loadJson(KEYS.history, []) }
@@ -133,16 +153,18 @@ function showToast(message) {
 function headerMarkup() {
   const info = PAGE_INFO[activePage]
   const now = new Date()
-  return `<header class="topbar"><div><div class="top-title">${info.icon} ${info.title}</div><div class="top-sub">${info.subtitle}</div></div><div class="top-right"><span class="status-dot"></span><span>本地保存 · 无需登录</span><span class="pill">${now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}</span></div></header>`
+  const ambienceLabel = ambienceType === 'none' ? '' : ` · ${({rain:'雨声',ocean:'海浪',forest:'森林'})[ambienceType] || ''}播放中`
+  return `<header class="topbar"><div><div class="top-title">${info.icon} ${info.title}</div><div class="top-sub">${info.subtitle}</div></div><div class="top-right"><span class="status-dot"></span><span>本地保存 · 无需登录${ambienceLabel}</span><span class="pill">${now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}</span></div></header>`
 }
 function navMarkup() {
-  const items = [ ['home','🐟','木鱼修行'], ['bubble','🫧','捏泡泡'], ['whack','🔨','锤烦恼'], ['fortune','🏮','今日求签'], ['mine','🌱','我的档案'] ]
-  return `<aside class="sidebar"><div class="brand"><div class="brand-mark">🌿</div><div><div class="brand-title">解压研究所</div><div class="brand-sub">RELAX LAB · DESKTOP</div></div></div><div class="nav-label">放松一下</div><nav class="nav">${items.map(([id,icon,label]) => `<button class="nav-item ${activePage === id ? 'active' : ''}" data-page="${id}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}</nav><div class="sidebar-bottom"><div class="mini-note"><strong>☁️ 给自己一点空间</strong>不必每件事都马上完成。停下来呼吸一下，也是一种进步。</div><div class="sidebar-foot">解压研究所 v1.0.0 · 桌面版</div></div></aside>`
+  const items = [ ['home','🐟','木鱼修行'], ['bubble','🫧','捏泡泡'], ['infinite','🫧','无限泡泡'], ['sand','🏖️','沙子绘画'], ['whack','🔨','锤烦恼'], ['relax','🌧️','白噪音小屋'], ['fortune','🏮','今日求签'], ['mood','🌈','每日心情'], ['mine','🌱','我的档案'] ]
+  return `<aside class="sidebar"><div class="brand"><div class="brand-mark"><img class="brand-icon-image" src="../assets/icon.png" alt=""></div><div><div class="brand-title">解压研究所</div><div class="brand-sub">RELAX LAB · DESKTOP</div></div></div><div class="nav-label">放松一下</div><nav class="nav">${items.map(([id,icon,label]) => `<button class="nav-item ${activePage === id ? 'active' : ''}" data-page="${id}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}</nav><div class="sidebar-bottom"><div class="mini-note"><strong>☁️ 给自己一点空间</strong>不必每件事都马上完成。停下来呼吸一下，也是一种进步。</div><div class="sidebar-foot">解压研究所 v1.1.0 · 桌面版</div></div></aside>`
 }
 function render() {
-  // Stop stale audio-independent game loops only when their own page is closed by navigation handler.
-  const pageContent = activePage === 'home' ? renderHome() : activePage === 'bubble' ? renderBubble() : activePage === 'whack' ? renderWhack() : activePage === 'fortune' ? renderFortune() : renderMine()
+  const pageContent = activePage === 'home' ? renderHome() : activePage === 'bubble' ? renderBubble() : activePage === 'whack' ? renderWhack() : activePage === 'fortune' ? renderFortune() : activePage === 'mine' ? renderMine() : activePage === 'relax' ? renderRelax() : activePage === 'sand' ? renderSand() : activePage === 'infinite' ? renderInfiniteBubbles() : renderMood()
   root.innerHTML = `<div class="app">${navMarkup()}<main class="main">${headerMarkup()}<section class="content"><div class="content-inner">${pageContent}</div></section></main></div>`
+  document.documentElement.dataset.theme = currentTheme
+  if (activePage === 'sand') requestAnimationFrame(initSandCanvas)
 }
 function renderHome() {
   const s = getStats(), skinInfo = getSkin(s.meritTotal), skin = skinInfo.skin, lvl = getLevel(s)
@@ -184,8 +206,188 @@ function renderFortune() {
 function renderMine() {
   const s = getStats(), lvl = getLevel(s), history = getHistory().slice(0,10), achievements = getAchievements(s)
   const unlocked = achievements.filter(a => a.unlocked).length
-  return `<div class="section-head"><div><div class="eyebrow">YOUR RELAX JOURNEY</div><h1 class="page-heading">我的档案</h1><p class="page-desc">所有数据默认保存在当前电脑，不会自动上传到网络。</p></div><span class="pill">${unlocked}/${achievements.length} 成就</span></div><section class="card profile-level"><div class="level-top"><div><div class="eyebrow" style="color:#e5e0ff">CURRENT LEVEL</div><div class="level-name">${lvl.name}</div></div><div class="level-total">解压值 ${lvl.total}</div></div><div class="progress-track"><div class="progress-fill" style="width:${lvl.percent}%"></div></div><div class="progress-note">${lvl.nextName === '已达最高' ? '已达最高等级，你是解压之王 👑' : `距「${lvl.nextName}」还差 ${lvl.need} 点解压值`}</div></section><div class="stats-grid" style="margin-bottom:16px"><div class="stat-tile"><div class="stat-number">${s.meritToday}</div><div class="stat-label">今日功德</div></div><div class="stat-tile"><div class="stat-number">${s.meritTotal}</div><div class="stat-label">累计功德</div></div><div class="stat-tile"><div class="stat-number">${s.bubblesTotal}</div><div class="stat-label">累计捏爆泡泡</div></div><div class="stat-tile"><div class="stat-number">${s.drawsTotal}</div><div class="stat-label">求签次数</div></div><div class="stat-tile"><div class="stat-number">${s.whackTotal || 0}</div><div class="stat-label">累计锤中烦恼</div></div><div class="stat-tile"><div class="stat-number">${s.whackBestScore || 0}</div><div class="stat-label">锤烦恼最佳分</div></div></div><section class="card" style="margin-bottom:16px"><div class="card-title">🏆 成就墙 <span class="pill">已解锁 ${unlocked}/${achievements.length}</span></div><div class="card-sub">完成小游戏可以解锁更多徽章。</div><div class="achievement-grid">${achievements.map(a => `<div class="achievement ${a.unlocked ? '' : 'locked'}"><div class="achievement-emoji">${a.unlocked ? a.emoji : '🔒'}</div><div class="achievement-name">${a.unlocked ? a.name : '？？？'}</div><div class="achievement-desc">${a.desc}</div></div>`).join('')}</div></section><section class="card" style="margin-bottom:16px"><div class="card-title">🏮 最近求签</div><div class="fortune-history">${history.length ? history.map(h => `<div class="history-item"><div class="history-badge">${escapeHtml(h.name)}</div><div class="history-text">${escapeHtml(h.text)}</div><div class="history-time">${fmtTime(h.time)}</div></div>`).join('') : '<div class="empty-state">暂无求签记录，去「今日求签」看看吧。</div>'}</div></section><section class="card"><div class="card-title">⚙️ 设置</div><div class="settings-row"><div><strong>🔊 音效</strong><div class="card-sub">控制木鱼、泡泡、锤击和求签音效。</div></div><input id="sound-toggle" class="toggle" type="checkbox" ${soundEnabled ? 'checked' : ''} aria-label="开启音效"></div><div class="divider"></div><div class="settings-row"><div><strong>重置本机数据</strong><div class="card-sub">清空功德、记录、最佳成绩和成就进度。</div></div><button class="danger-btn" data-action="reset-data">重置数据</button></div></section><div class="footer-note">解压研究所 v1.0.0 · 愿你今天也有一点好心情。</div>`
+  return `<div class="section-head"><div><div class="eyebrow">YOUR RELAX JOURNEY</div><h1 class="page-heading">我的档案与设置</h1><p class="page-desc">游戏记录、主题和音效设置只保存在当前电脑。</p></div><span class="pill">${unlocked}/${achievements.length} 成就</span></div>
+    <section class="card profile-level"><div class="level-top"><div><div class="eyebrow" style="color:#e5e0ff">CURRENT LEVEL</div><div class="level-name">${lvl.name}</div></div><div class="level-total">解压值 ${lvl.total}</div></div><div class="progress-track"><div class="progress-fill" style="width:${lvl.percent}%"></div></div><div class="progress-note">${lvl.nextName === '已达最高' ? '已达最高等级，你是解压之王 👑' : `距「${lvl.nextName}」还差 ${lvl.need} 点解压值`}</div></section>
+    <div class="stats-grid" style="margin-bottom:16px"><div class="stat-tile"><div class="stat-number">${s.meritToday}</div><div class="stat-label">今日功德</div></div><div class="stat-tile"><div class="stat-number">${s.meritTotal}</div><div class="stat-label">累计功德</div></div><div class="stat-tile"><div class="stat-number">${s.bubblesTotal}</div><div class="stat-label">累计捏爆泡泡</div></div><div class="stat-tile"><div class="stat-number">${s.drawsTotal}</div><div class="stat-label">求签次数</div></div><div class="stat-tile"><div class="stat-number">${s.whackTotal || 0}</div><div class="stat-label">累计锤中烦恼</div></div><div class="stat-tile"><div class="stat-number">${infinitePopCount}</div><div class="stat-label">无限泡泡次数</div></div></div>
+    <section class="card" style="margin-bottom:16px"><div class="card-title">🏆 成就墙 <span class="pill">已解锁 ${unlocked}/${achievements.length}</span></div><div class="card-sub">完成小游戏可以解锁更多徽章。</div><div class="achievement-grid">${achievements.map(a => `<div class="achievement ${a.unlocked ? '' : 'locked'}"><div class="achievement-emoji">${a.unlocked ? a.emoji : '🔒'}</div><div class="achievement-name">${a.unlocked ? a.name : '？？？'}</div><div class="achievement-desc">${a.desc}</div></div>`).join('')}</div></section>
+    <section class="card" style="margin-bottom:16px"><div class="card-title">🎨 外观主题</div><div class="card-sub">选择适合当下心情的配色，立即应用到整个软件。</div><div class="theme-grid"><button class="theme-choice ${currentTheme === 'lavender' ? 'selected' : ''}" data-theme-choice="lavender"><span class="theme-swatch swatch-lavender"></span><strong>柔和薰衣草</strong><small>默认 · 温柔舒缓</small></button><button class="theme-choice ${currentTheme === 'ocean' ? 'selected' : ''}" data-theme-choice="ocean"><span class="theme-swatch swatch-ocean"></span><strong>海盐蓝</strong><small>清爽 · 宁静</small></button><button class="theme-choice ${currentTheme === 'forest' ? 'selected' : ''}" data-theme-choice="forest"><span class="theme-swatch swatch-forest"></span><strong>森林绿</strong><small>自然 · 平静</small></button><button class="theme-choice ${currentTheme === 'sunset' ? 'selected' : ''}" data-theme-choice="sunset"><span class="theme-swatch swatch-sunset"></span><strong>日落橘</strong><small>温暖 · 柔和</small></button></div>
+      <div class="settings-row"><div><strong>🔊 游戏音效</strong><div class="card-sub">控制木鱼、泡泡、锤击和求签音效。</div></div><input id="sound-toggle" class="toggle" type="checkbox" ${soundEnabled ? 'checked' : ''} aria-label="开启游戏音效"></div><div class="volume-control"><label for="sound-volume">游戏音效音量 <strong id="sound-volume-value">${soundVolume}%</strong></label><input id="sound-volume" type="range" min="0" max="100" step="5" value="${soundVolume}"></div>
+      <div class="divider"></div><div class="settings-row"><div><strong>🌧️ 环境音</strong><div class="card-sub">雨声、海浪、森林音效可在「白噪音小屋」设置。</div></div><button class="secondary-btn" data-page="relax">打开白噪音</button></div>
+    </section>
+    <section class="card" style="margin-bottom:16px"><div class="card-title">🏮 最近求签</div><div class="fortune-history">${history.length ? history.map(h => `<div class="history-item"><div class="history-badge">${escapeHtml(h.name)}</div><div class="history-text">${escapeHtml(h.text)}</div><div class="history-time">${fmtTime(h.time)}</div></div>`).join('') : '<div class="empty-state">暂无求签记录，去「今日求签」看看吧。</div>'}</div></section>
+    <section class="card"><div class="card-title">🧰 本地数据管理</div><div class="card-sub">卸载软件不会主动清理这些记录；重置会清空功德、游戏记录、心情日记和成就进度。</div><div class="settings-row"><div><strong>重置本机数据</strong><div class="card-sub">此操作无法撤销。</div></div><button class="danger-btn" data-action="reset-data">重置数据</button></div></section><div class="footer-note">解压研究所 v1.1.0 · 愿你今天也有一点好心情。</div>`
 }
+
+
+const MOODS = [
+  { id: 'great', emoji: '🤩', label: '很开心', color: '#ffcf70' },
+  { id: 'good', emoji: '😊', label: '还不错', color: '#a9dba9' },
+  { id: 'calm', emoji: '😌', label: '很平静', color: '#a8d7e9' },
+  { id: 'tired', emoji: '😴', label: '有点累', color: '#c7b7ee' },
+  { id: 'down', emoji: '😔', label: '有点低落', color: '#a9b7d7' },
+  { id: 'angry', emoji: '😤', label: '有点烦躁', color: '#f2aaa0' }
+]
+function dateKey(date) { const d = date instanceof Date ? date : new Date(date); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+function shiftDate(date, days) { const d = new Date(date); d.setDate(d.getDate()+days); return d }
+function loadMoodDraft(key = selectedMoodDate) {
+  const rec = loadJson(KEYS.moods, {})[key]
+  moodDraft = rec ? { mood: rec.mood || '', note: rec.note || '' } : { mood: '', note: '' }
+}
+function renderMood() {
+  const all = loadJson(KEYS.moods, {})
+  const selected = moodDraft || { mood: '', note: '' }
+  const year = moodMonth.getFullYear(), month = moodMonth.getMonth()
+  const first = new Date(year, month, 1), offset = (first.getDay() + 6) % 7, daysInMonth = new Date(year, month + 1, 0).getDate()
+  const cells = []
+  for (let i=0; i<offset; i++) cells.push('<div class="calendar-blank"></div>')
+  for (let day=1; day<=daysInMonth; day++) {
+    const d = new Date(year, month, day), key = dateKey(d), rec = all[key], isToday = key === todayStr(), isSelected = key === selectedMoodDate
+    const mood = rec ? MOODS.find(m=>m.id===rec.mood) : null
+    cells.push(`<button class="calendar-day ${isToday?'today':''} ${isSelected?'selected':''} ${rec?'has-entry':''}" data-mood-date="${key}" aria-label="${key}${mood?' '+mood.label:''}"><span>${day}</span><span class="calendar-mood">${mood ? mood.emoji : ''}</span></button>`)
+  }
+  const selectedDateParts = selectedMoodDate.split('-').map(Number)
+  const monday = new Date(selectedDateParts[0], selectedDateParts[1]-1, selectedDateParts[2])
+  monday.setDate(monday.getDate() - ((monday.getDay()+6)%7))
+  const week = Array.from({length:7}, (_,i)=>dateKey(shiftDate(monday,i)))
+  const weekEntries = week.map(k=>({key:k,record:all[k]})).filter(x=>x.record)
+  const moodCounts = MOODS.map(m=>({ ...m, count:weekEntries.filter(x=>x.record.mood===m.id).length })).filter(m=>m.count).sort((a,b)=>b.count-a.count)
+  const maxCount = Math.max(1, ...moodCounts.map(m=>m.count))
+  const weekText = `${week[0].slice(5).replace('-', '/')} - ${week[6].slice(5).replace('-', '/')}`
+  return `<div class="section-head"><div><div class="eyebrow">A LITTLE CHECK-IN</div><h1 class="page-heading">每日心情日记</h1><p class="page-desc">不用给每一天打分，只要诚实地留下一点记录。日记只保存在本机。</p></div><span class="pill">已记录 ${Object.keys(all).length} 天</span></div>
+    <div class="mood-layout"><section class="card mood-editor"><div class="card-title">🌈 ${selectedMoodDate === todayStr() ? '今天的心情' : `记录 ${selectedMoodDate}`}</div><div class="mood-options">${MOODS.map(m=>`<button class="mood-option ${selected.mood===m.id?'chosen':''}" data-select-mood="${m.id}" style="--mood-color:${m.color}"><span>${m.emoji}</span><strong>${m.label}</strong></button>`).join('')}</div><label class="field-label" for="mood-note">想记下什么？（选填）</label><textarea id="mood-note" class="mood-note" maxlength="500" placeholder="今天发生了什么？有什么想对自己说的……">${escapeHtml(selected.note || '')}</textarea><div class="mood-editor-bottom"><span class="tiny-label">最多 500 字 · 只保存在这台电脑</span><button class="primary-btn" data-action="save-mood">保存这一天</button></div><div class="divider"></div><div class="card-sub">小提醒：心情没有正确答案；觉得累、烦躁或低落，也都可以被认真对待。</div></section>
+    <section class="card calendar-card"><div class="calendar-toolbar"><button class="icon-button" data-action="mood-prev-month" aria-label="上个月">‹</button><strong>${year} 年 ${month+1} 月</strong><button class="icon-button" data-action="mood-next-month" aria-label="下个月">›</button></div><div class="calendar-grid calendar-weekdays">${['一','二','三','四','五','六','日'].map(d=>`<span>${d}</span>`).join('')}</div><div class="calendar-grid">${cells.join('')}</div><div class="calendar-legend"><span>● 有记录</span><span>蓝色边框 = 今天</span></div></section></div>
+    <section class="card weekly-card"><div class="card-title">📅 本周心情回顾 <span class="pill">${weekText}</span></div><div class="card-sub">本周已有 ${weekEntries.length} 天记录。回顾只是帮助你观察变化，不是评价好坏。</div>${moodCounts.length ? `<div class="mood-bars">${moodCounts.map(m=>`<div class="mood-bar-row"><span class="mood-bar-emoji">${m.emoji}</span><span class="mood-bar-label">${m.label}</span><div class="mood-bar-track"><span style="width:${m.count/maxCount*100}%;background:${m.color}"></span></div><strong>${m.count} 天</strong></div>`).join('')}</div><div class="weekly-note">${weekEntries.length>=5?'这周你留下了不少记录，记得也给自己留一些不需要完成任务的时间。':'每写下一次记录，就更了解自己一点。可以从今天开始慢慢积累。'}</div>` : '<div class="empty-state">这周还没有心情记录。选择上面的心情，写下一句话就可以开始。</div>'}</section>`
+}
+function renderRelax() {
+  const active = ambienceType !== 'none'
+  const names = { rain:'细雨落窗', ocean:'缓缓海浪', forest:'林间微风' }
+  return `<div class="section-head"><div><div class="eyebrow">AMBIENT CORNER</div><h1 class="page-heading">白噪音小屋</h1><p class="page-desc">无需下载额外音频。雨声、海浪和森林氛围由本地音频引擎生成，可离线使用。</p></div><span class="pill ${active?'ambience-on':''}">${active?'● 正在播放':'○ 已暂停'}</span></div>
+    <section class="card relax-hero theme-${currentTheme}"><div class="relax-scene scene-${ambienceType==='none'?'rain':ambienceType}"><div class="scene-orb"></div><div class="scene-landscape"></div><div class="scene-text"><div class="scene-eyebrow">TAKE A BREATH</div><div class="scene-title">${active ? names[ambienceType] : '给自己几分钟'}</div><div class="scene-desc">${active?'不必赶时间，先听一会儿。':'挑一种声音，让思绪慢慢安静下来。'}</div></div><div class="scene-stars">✦　·　✧　　 ✦　　·</div></div>
+      <div class="sound-choice-grid">${[['rain','🌧️','窗边细雨','稳定、细密的雨声'],['ocean','🌊','缓缓海浪','低频起伏的海潮声'],['forest','🌲','林间微风','树叶沙沙与轻柔鸟鸣']].map(([id,emoji,title,desc])=>`<button class="sound-choice ${ambienceType===id?'selected':''}" data-ambience="${id}"><span class="sound-choice-icon">${emoji}</span><span class="sound-choice-copy"><strong>${title}</strong><small>${desc}</small></span><span class="sound-check">${ambienceType===id?'✓':'+'}</span></button>`).join('')}</div>
+      <div class="ambience-controls"><div><label for="ambience-volume">环境音音量 <strong id="ambience-volume-value">${ambienceVolume}%</strong></label><input id="ambience-volume" type="range" min="0" max="100" step="5" value="${ambienceVolume}"></div><div class="ambience-buttons"><button class="primary-btn" data-action="${active?'stop-ambience':'start-ambience'}">${active?'Ⅱ 暂停环境音':'▶ 开始播放'}</button><button class="secondary-btn" data-action="fullscreen-relax">⛶ 全屏放松</button></div></div></section>
+    <div class="grid relax-tips-grid"><section class="card"><div class="card-title">🫧 放空提示</div><p class="page-desc">让肩膀自然放松，试着慢慢吸气，再缓缓呼气。你不需要立刻解决所有事情。</p></section><section class="card"><div class="card-title">🔒 本地与隐私</div><p class="page-desc">环境音在本机合成，不会向服务器发送声音或记录。全屏模式按 Esc 即可退出。</p></section></div>`
+}
+function renderSand() {
+  return `<div class="section-head"><div><div class="eyebrow">SAND ART STUDIO</div><h1 class="page-heading">沙子绘画</h1><p class="page-desc">按住鼠标在画布上移动，让彩砂落下。画得随意也没关系。</p></div><span class="pill">自由创作 · 无评分</span></div><section class="card sand-card"><div class="sand-toolbar"><div class="sand-colors"><span class="tiny-label">彩砂颜色</span>${[['#f0b45d','金砂'],['#f28c8c','珊瑚'],['#8aabef','海蓝'],['#a8ce9b','苔绿'],['#ba9be8','薰衣草'],['#fff0c2','月光']].map(([color,label],i)=>`<button class="sand-color ${i===0?'active':''}" data-sand-color="${color}" style="--sand-color:${color}" title="${label}" aria-label="${label}"></button>`).join('')}</div><div class="sand-size-wrap"><label for="sand-size">颗粒大小 <strong id="sand-size-value">16</strong></label><input id="sand-size" type="range" min="4" max="34" value="16" step="2"></div><div class="sand-actions"><button class="secondary-btn" data-action="sand-clear">清空画布</button><button class="primary-btn" data-action="sand-save">保存为图片</button></div></div><div class="sand-canvas-wrap"><canvas id="sand-canvas" aria-label="彩砂绘画区域"></canvas><div class="sand-canvas-hint" id="sand-hint">按住鼠标或触摸屏幕，开始绘画</div></div><div class="sand-footer"><span>💡 小技巧：慢慢移动会形成细线，快速移动会留下更松散的沙粒。</span><span>作品仅在本机处理</span></div></section>`
+}
+function renderInfiniteBubbles() {
+  const colors = ['c1','c2','c3','c4']
+  const bubbles = Array.from({length:48},(_,i)=>`<button class="infinite-bubble ${colors[i%colors.length]}" data-infinite-pop="${i}" aria-label="捏泡泡 ${i+1}" style="--delay:${Math.random()*1.8}s"><span></span></button>`).join('')
+  return `<div class="section-head"><div><div class="eyebrow">NO TIMER · JUST POP</div><h1 class="page-heading">无限捏泡泡</h1><p class="page-desc">这里没有计时器和成绩。点掉一个，它就会重新长出来。</p></div><span class="pill">累计捏爆 ${infinitePopCount} 次</span></div><section class="card infinite-card"><div class="infinite-top"><div><div class="infinite-big-count" id="infinite-count">${infinitePopCount}</div><div class="card-sub">你的累计泡泡次数</div></div><div class="infinite-status">🫧 慢慢来，不必赶</div></div><div class="infinite-grid">${bubbles}</div><div class="infinite-bottom"><span>点一下就好，想停随时停。</span><button class="text-btn" data-action="reset-infinite-count">重置本页计数</button></div></section>`
+}
+function getAudioContext() {
+  if (!audioContext) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext
+    if (!AudioCtx) throw new Error('当前系统不支持 Web Audio')
+    audioContext = new AudioCtx()
+  }
+  if (audioContext.state === 'suspended') audioContext.resume().catch(()=>{})
+  return audioContext
+}
+function stopAmbience() {
+  ambienceNodes.forEach(node=>{ try { if (typeof node.stop === 'function') node.stop() } catch (_) {} try { node.disconnect() } catch (_) {} })
+  ambienceNodes = []
+  if (ambientOutput) { try { ambientOutput.disconnect() } catch (_) {} ambientOutput = null }
+  ambienceType = 'none'
+}
+function startAmbience(kind) {
+  try {
+    stopAmbience()
+    const ctx = getAudioContext()
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate)
+    const channel = buffer.getChannelData(0)
+    let last = 0
+    for (let i=0;i<channel.length;i++) {
+      const white = Math.random()*2-1
+      last = kind === 'ocean' ? last * .985 + white * .08 : kind === 'forest' ? last * .72 + white * .28 : white
+      channel[i] = last
+    }
+    const source = ctx.createBufferSource(); source.buffer = buffer; source.loop = true
+    const filter = ctx.createBiquadFilter()
+    const high = ctx.createBiquadFilter()
+    const gain = ctx.createGain()
+    if (kind === 'rain') { high.type='highpass'; high.frequency.value=520; filter.type='lowpass'; filter.frequency.value=7600; gain.gain.value=.24 }
+    else if (kind === 'ocean') { high.type='highpass'; high.frequency.value=65; filter.type='lowpass'; filter.frequency.value=540; gain.gain.value=.75 }
+    else { high.type='highpass'; high.frequency.value=900; filter.type='lowpass'; filter.frequency.value=4800; gain.gain.value=.28 }
+    source.connect(high); high.connect(filter); filter.connect(gain); gain.connect(ctx.destination)
+    ambientOutput = gain
+    ambienceNodes.push(source, high, filter, gain)
+    if (kind === 'ocean') {
+      const lfo=ctx.createOscillator(), lfoGain=ctx.createGain(); lfo.frequency.value=.08; lfoGain.gain.value=.22
+      lfo.connect(lfoGain); lfoGain.connect(gain.gain); lfo.start(); ambienceNodes.push(lfo,lfoGain)
+    }
+    if (kind === 'forest') {
+      const osc=ctx.createOscillator(), birdGain=ctx.createGain(), lfo=ctx.createOscillator(), lfoGain=ctx.createGain()
+      osc.type='sine'; osc.frequency.value=1950; birdGain.gain.value=.008; lfo.frequency.value=.17; lfoGain.gain.value=.006
+      lfo.connect(lfoGain); lfoGain.connect(birdGain.gain); osc.connect(birdGain); birdGain.connect(gain); osc.start(); lfo.start()
+      ambienceNodes.push(osc,birdGain,lfo,lfoGain)
+    }
+    source.start()
+    ambienceType = kind
+    updateAmbientVolume()
+    render()
+  } catch (error) { showToast('环境音启动失败：' + (error.message || '音频不可用')) }
+}
+function updateAmbientVolume() {
+  if (ambientOutput && audioContext) ambientOutput.gain.value = (ambienceType === 'ocean' ? .3 : .22) * Math.max(0,Math.min(100,ambienceVolume))/100
+}
+function updateTheme(theme) {
+  currentTheme = ['lavender','ocean','forest','sunset'].includes(theme) ? theme : 'lavender'
+  localStorage.setItem(KEYS.theme,currentTheme)
+  document.documentElement.dataset.theme=currentTheme
+  render()
+}
+function fullscreenRelax() {
+  const old = document.getElementById('relax-overlay'); if (old) old.remove()
+  const overlay = document.createElement('div')
+  overlay.id='relax-overlay'; overlay.className=`relax-overlay theme-${currentTheme}`
+  overlay.innerHTML=`<div class="fullscreen-noise" aria-hidden="true"></div><div class="fullscreen-moon" aria-hidden="true">${ambienceType==='ocean'?'🌙':ambienceType==='forest'?'🌿':'☁️'}</div><div class="fullscreen-copy"><div class="eyebrow">A QUIET MOMENT</div><h1>${ambienceType==='none'?'给自己一点空白':({rain:'听雨，也听听自己',ocean:'让思绪像海浪一样来去',forest:'在林间慢慢呼吸'})[ambienceType]}</h1><p>你可以暂时什么都不做。吸气，呼气，慢慢来。</p><div class="breath-ring"><span>慢慢呼吸</span></div><div class="fullscreen-audio">${ambienceType==='none'?'环境音已关闭':`正在播放：${({rain:'窗边细雨',ocean:'缓缓海浪',forest:'林间微风'})[ambienceType]}`}</div><div class="fullscreen-buttons"><button class="primary-btn" id="fullscreen-toggle-audio">${ambienceType==='none'?'播放雨声':'切换环境音'}</button><button class="secondary-btn" id="fullscreen-exit">退出全屏 · Esc</button></div></div><div class="fullscreen-footer">解压研究所 · 所有声音均在本机生成</div>`
+  document.body.appendChild(overlay)
+  const exit=()=>{ try { if(document.fullscreenElement) document.exitFullscreen().catch(()=>{}) } catch(_){} overlay.remove(); document.removeEventListener('keydown',escHandler) }
+  const escHandler=(e)=>{ if(e.key==='Escape') exit() }
+  overlay.querySelector('#fullscreen-exit').addEventListener('click',exit)
+  overlay.querySelector('#fullscreen-toggle-audio').addEventListener('click',()=>{
+    const next=ambienceType==='none'?'rain':ambienceType==='rain'?'ocean':ambienceType==='ocean'?'forest':'rain'
+    startAmbience(next); overlay.remove(); document.removeEventListener('keydown',escHandler); fullscreenRelax()
+  })
+  document.addEventListener('keydown',escHandler)
+  if (overlay.requestFullscreen) overlay.requestFullscreen().catch(()=>{})
+}
+function initSandCanvas() {
+  sandCanvas=document.getElementById('sand-canvas'); if(!sandCanvas) return
+  sandCtx=sandCanvas.getContext('2d'); if(!sandCtx) return
+  const rect=sandCanvas.getBoundingClientRect(), dpr=Math.max(1,window.devicePixelRatio||1)
+  sandCanvas.width=Math.max(1,Math.floor(rect.width*dpr)); sandCanvas.height=Math.max(1,Math.floor(rect.height*dpr))
+  sandCtx.setTransform(dpr,0,0,dpr,0,0)
+  sandCtx.fillStyle='#efe2c8'; sandCtx.fillRect(0,0,rect.width,rect.height)
+  sandCtx.fillStyle='#e6d4b2'; for(let i=0;i<1600;i++){const x=Math.random()*rect.width,y=Math.random()*rect.height,r=Math.random()*1.4;sandCtx.globalAlpha=.07+Math.random()*.15;sandCtx.beginPath();sandCtx.arc(x,y,r,0,Math.PI*2);sandCtx.fill()}; sandCtx.globalAlpha=1
+  sandCanvas.addEventListener('pointerdown', sandPointerDown)
+  sandCanvas.addEventListener('pointermove', sandPointerMove)
+  window.addEventListener('pointerup', sandPointerUp, { once:false })
+}
+function sandPointerDown(event) { if(!sandCanvas||!sandCtx)return; sandDrawing=true; sandCanvas.setPointerCapture?.(event.pointerId); sandDraw(event); const hint=document.getElementById('sand-hint'); if(hint)hint.classList.add('hidden') }
+function sandPointerMove(event) { if(sandDrawing) sandDraw(event) }
+function sandPointerUp() { sandDrawing=false }
+function sandDraw(event) {
+  const rect=sandCanvas.getBoundingClientRect(), x=event.clientX-rect.left, y=event.clientY-rect.top
+  const count=Math.max(10,Math.floor(sandSize*1.7))
+  for(let i=0;i<count;i++) {
+    const angle=Math.random()*Math.PI*2, dist=Math.random()*sandSize
+    const px=x+Math.cos(angle)*dist, py=y+Math.sin(angle)*dist, r=.45+Math.random()*1.8
+    sandCtx.globalAlpha=.24+Math.random()*.68; sandCtx.fillStyle=Math.random()<.18?'#fff3d5':sandColor
+    sandCtx.beginPath(); sandCtx.arc(px,py,r,0,Math.PI*2); sandCtx.fill()
+  }
+  sandCtx.globalAlpha=1
+}
+function clearSand() { if(!sandCanvas)return; const rect=sandCanvas.getBoundingClientRect(); sandCtx.fillStyle='#efe2c8'; sandCtx.fillRect(0,0,rect.width,rect.height); for(let i=0;i<1100;i++){sandCtx.globalAlpha=.07+Math.random()*.15;sandCtx.fillStyle='#e6d4b2';sandCtx.beginPath();sandCtx.arc(Math.random()*rect.width,Math.random()*rect.height,Math.random()*1.3,0,Math.PI*2);sandCtx.fill()};sandCtx.globalAlpha=1;const hint=document.getElementById('sand-hint');if(hint)hint.classList.remove('hidden') }
+function saveSandImage() { if(!sandCanvas)return; const a=document.createElement('a');a.download=`解压研究所-沙子绘画-${todayStr()}.png`;a.href=sandCanvas.toDataURL('image/png');a.click();showToast('已导出绘画 PNG 图片') }
+function saveMood() {
+  const noteEl=document.getElementById('mood-note'); if(noteEl)moodDraft.note=noteEl.value.slice(0,500)
+  if(!moodDraft.mood) { showToast('先选一个最接近此刻的心情'); return }
+  const all=loadJson(KEYS.moods,{}); all[selectedMoodDate]={mood:moodDraft.mood,note:moodDraft.note,updatedAt:Date.now()}; saveJson(KEYS.moods,all)
+  showToast('这一天的心情已保存在本机'); render()
+}
+function selectMoodDate(key) { selectedMoodDate=key; moodMonth=new Date(Number(key.slice(0,4)),Number(key.slice(5,7))-1,1);loadMoodDraft(key);render() }
 
 function knockFish() {
   const s = changeStats(x => { x.meritTotal = (x.meritTotal || 0) + 1; x.meritToday = (x.meritToday || 0) + 1; x.meritDate = todayStr() })
@@ -333,19 +535,39 @@ function drawFortune() {
   }, 1900))
 }
 function resetAllData() {
-  localStorage.removeItem(KEYS.stats); localStorage.removeItem(KEYS.history); localStorage.removeItem(KEYS.achievements)
+  localStorage.removeItem(KEYS.stats); localStorage.removeItem(KEYS.history); localStorage.removeItem(KEYS.achievements); localStorage.removeItem(KEYS.moods); localStorage.removeItem(KEYS.infiniteBubbles); infinitePopCount = 0
   bubbleGame = newBubbleRound(); quitWhack(); fortuneAnimation = 'idle'
   showToast('本机数据已清空'); render()
 }
 
 root.addEventListener('click', (event) => {
+  const themeBtn=event.target.closest('[data-theme-choice]')
+  if(themeBtn){updateTheme(themeBtn.getAttribute('data-theme-choice'));showToast('主题已切换');return}
+  const ambienceBtn=event.target.closest('[data-ambience]')
+  if(ambienceBtn){startAmbience(ambienceBtn.getAttribute('data-ambience'));return}
+  const sandColorBtn=event.target.closest('[data-sand-color]')
+  if(sandColorBtn){sandColor=sandColorBtn.getAttribute('data-sand-color');document.querySelectorAll('[data-sand-color]').forEach(b=>b.classList.toggle('active',b===sandColorBtn));return}
+  const moodBtn=event.target.closest('[data-select-mood]')
+  if(moodBtn){moodDraft.mood=moodBtn.getAttribute('data-select-mood');const n=document.getElementById('mood-note');if(n)moodDraft.note=n.value;render();return}
+  const moodDate=event.target.closest('[data-mood-date]')
+  if(moodDate){selectMoodDate(moodDate.getAttribute('data-mood-date'));return}
+  const inf=event.target.closest('[data-infinite-pop]')
+  if(inf){
+    infinitePopCount+=1;localStorage.setItem(KEYS.infiniteBubbles,String(infinitePopCount));const count=document.getElementById('infinite-count');if(count)count.textContent=String(infinitePopCount)
+    inf.classList.add('popped');inf.querySelector('span').textContent=pick(['✦','✧','💫','']);playSound('pop')
+    setTimeout(()=>{if(!inf.isConnected)return;inf.classList.remove('popped');inf.querySelector('span').textContent='';inf.style.setProperty('--delay',`${Math.random()*1.8}s`);inf.classList.remove('c1','c2','c3','c4');inf.classList.add(pick(['c1','c2','c3','c4']))},220)
+    const status=document.querySelector('.infinite-status');if(status)status.textContent=pick(['🫧 很好，慢慢来','✨ 一颗一颗地放松','🌿 不必赶时间','💜 给自己一点空间']);return
+  }
   const nav = event.target.closest('[data-page]')
   if (nav) {
     const nextPage = nav.getAttribute('data-page')
     if (activePage === 'whack' && nextPage !== 'whack' && whackGame.state === 'playing') quitWhack()
     if (activePage !== nextPage && activePage === 'fortune') { drawingTimers.forEach(clearTimeout); drawingTimers = []; if (fortuneAnimation === 'shaking' || fortuneAnimation === 'falling') fortuneAnimation = 'idle' }
+    if (activePage !== nextPage && activePage === 'sand') { sandCanvas=null; sandCtx=null; sandDrawing=false }
+    if (activePage === 'mood') { const noteEl=document.getElementById('mood-note');if(noteEl)moodDraft.note=noteEl.value.slice(0,500) }
     activePage = nextPage
     if (activePage === 'bubble' && !bubbleGame) bubbleGame = newBubbleRound()
+    if (activePage === 'mood') loadMoodDraft(selectedMoodDate)
     render()
     return
   }
@@ -362,16 +584,46 @@ root.addEventListener('click', (event) => {
   else if (action === 'start-whack') startWhack()
   else if (action === 'quit-whack') quitWhack()
   else if (action === 'draw-fortune') drawFortune()
+  else if (action === 'start-ambience') startAmbience(ambienceType==='none'?'rain':ambienceType)
+  else if (action === 'stop-ambience') { stopAmbience();render();showToast('环境音已暂停') }
+  else if (action === 'fullscreen-relax') fullscreenRelax()
+  else if (action === 'sand-clear') clearSand()
+  else if (action === 'sand-save') saveSandImage()
+  else if (action === 'save-mood') saveMood()
+  else if (action === 'mood-prev-month' || action === 'mood-next-month') {
+    moodMonth=new Date(moodMonth.getFullYear(),moodMonth.getMonth()+(action==='mood-prev-month'?-1:1),1);selectedMoodDate=dateKey(moodMonth);loadMoodDraft(selectedMoodDate);render()
+  }
+  else if (action === 'reset-infinite-count') { if(window.confirm('确定重置无限捏泡泡的累计次数吗？')){infinitePopCount=0;localStorage.setItem(KEYS.infiniteBubbles,'0');render()} }
   else if (action === 'reset-data') {
-    if (window.confirm('确定清空本机的功德、游戏纪录、求签历史和成就吗？此操作无法撤销。')) resetAllData()
+    if (window.confirm('确定清空本机的功德、游戏纪录、求签历史、心情日记和成就吗？此操作无法撤销。')) resetAllData()
   }
 })
 root.addEventListener('change', (event) => {
-  if (event.target && event.target.id === 'sound-toggle') {
-    soundEnabled = event.target.checked
+  const el=event.target
+  if (el && el.id === 'sound-toggle') {
+    soundEnabled = el.checked
     localStorage.setItem(KEYS.sound, soundEnabled ? 'true' : 'false')
-    showToast(soundEnabled ? '音效已开启' : '音效已关闭')
+    showToast(soundEnabled ? '游戏音效已开启' : '游戏音效已关闭')
   }
+  if(el && el.id==='sand-size'){sandSize=Number(el.value);const out=document.getElementById('sand-size-value');if(out)out.textContent=String(sandSize)}
+  if(el && el.id==='mood-note'){moodDraft.note=el.value.slice(0,500)}
+})
+root.addEventListener('input',(event)=>{
+  const el=event.target
+  if(el && el.id==='sound-volume'){
+    soundVolume=Number(el.value);localStorage.setItem(KEYS.soundVolume,String(soundVolume));const out=document.getElementById('sound-volume-value');if(out)out.textContent=`${soundVolume}%`
+  }
+  if(el && el.id==='ambience-volume'){
+    ambienceVolume=Number(el.value);localStorage.setItem(KEYS.ambienceVolume,String(ambienceVolume));updateAmbientVolume();const out=document.getElementById('ambience-volume-value');if(out)out.textContent=`${ambienceVolume}%`
+  }
+  if(el && el.id==='sand-size'){
+    sandSize=Number(el.value);const out=document.getElementById('sand-size-value');if(out)out.textContent=String(sandSize)
+  }
+  if(el && el.id==='mood-note') moodDraft.note=el.value.slice(0,500)
 })
 
+window.addEventListener('beforeunload',()=>{ try{stopAmbience()}catch(_){} })
+
+document.documentElement.dataset.theme = currentTheme
+loadMoodDraft(selectedMoodDate)
 render()
