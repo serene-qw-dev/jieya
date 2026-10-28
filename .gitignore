@@ -1,0 +1,4 @@
+desktop-app/node_modules/
+desktop-app/dist/
+*.log
+.DS_Store
